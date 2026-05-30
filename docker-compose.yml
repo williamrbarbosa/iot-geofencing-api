@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: iot_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-iot_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-iot_password}
+      POSTGRES_DB: ${DB_NAME:-iot_geofencing}
+    ports:
+      - "5433:5432" # Expose on 5433 to avoid conflict with local Postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docs/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-iot_user} -d ${DB_NAME:-iot_geofencing}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iot_api
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-iot_user}
+      DB_PASSWORD: ${DB_PASSWORD:-iot_password}
+      DB_NAME: ${DB_NAME:-iot_geofencing}
+      JWT_SECRET: ${JWT_SECRET:-super_secret_change_in_prod}
+      API_KEY: ${API_KEY:-dev-api-key-change-in-prod}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

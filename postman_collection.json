@@ -1,0 +1,483 @@
+{
+  "info": {
+    "name": "IoT Geofencing API",
+    "description": "Collection completa para testar a IoT Fleet Management Geofencing API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "dev-api-key-change-in-prod",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "geofenceId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        {
+          "name": "Create Device",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.id) {",
+                  "  pm.collectionVariables.set('deviceId', res.id);",
+                  "  console.log('deviceId saved:', res.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TRUCK-042\",\n  \"description\": \"Delivery truck - Route A\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            }
+          }
+        },
+        {
+          "name": "List All Devices",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            }
+          }
+        },
+        {
+          "name": "Get Device by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Device",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Delivery truck - Route A (updated)\",\n  \"status\": \"maintenance\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Device",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geofences",
+      "item": [
+        {
+          "name": "Create Geofence",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.id) {",
+                  "  pm.collectionVariables.set('geofenceId', res.id);",
+                  "  console.log('geofenceId saved:', res.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Warehouse Zone A\",\n  \"description\": \"Restricted loading area - São Paulo\",\n  \"area\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [-46.633, -23.550],\n        [-46.633, -23.560],\n        [-46.623, -23.560],\n        [-46.623, -23.550],\n        [-46.633, -23.550]\n      ]\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences"]
+            }
+          }
+        },
+        {
+          "name": "List All Geofences",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences"]
+            }
+          }
+        },
+        {
+          "name": "Get Geofence by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences/{{geofenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences", "{{geofenceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Geofence",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated description\",\n  \"isActive\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/geofences/{{geofenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences", "{{geofenceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Geofence",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences/{{geofenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences", "{{geofenceId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Locations",
+      "item": [
+        {
+          "name": "Ingest Location (OUTSIDE geofence)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -23.540,\n  \"longitude\": -46.650,\n  \"speed\": 72.5,\n  \"heading\": 180.0,\n  \"altitude\": 760.0,\n  \"accuracy\": 4.5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "location"]
+            }
+          }
+        },
+        {
+          "name": "Ingest Location (INSIDE geofence → triggers ENTER alert)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -23.555,\n  \"longitude\": -46.628,\n  \"speed\": 5.0,\n  \"heading\": 90.0,\n  \"altitude\": 758.0,\n  \"accuracy\": 3.0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "location"]
+            }
+          }
+        },
+        {
+          "name": "Ingest Location (OUTSIDE again → triggers EXIT alert)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -23.540,\n  \"longitude\": -46.650,\n  \"speed\": 45.0,\n  \"heading\": 270.0,\n  \"altitude\": 762.0,\n  \"accuracy\": 5.0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "location"]
+            }
+          }
+        },
+        {
+          "name": "Ingest Location (with custom recordedAt)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -23.548,\n  \"longitude\": -46.638,\n  \"speed\": 30.0,\n  \"recordedAt\": \"2024-01-15T14:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "location"]
+            }
+          }
+        },
+        {
+          "name": "Get Location History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/locations?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "locations"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "from", "value": "2024-01-01T00:00:00Z", "disabled": true },
+                { "key": "to", "value": "2024-12-31T23:59:59Z", "disabled": true }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "List All Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts"]
+            }
+          }
+        },
+        {
+          "name": "Get Alerts by Device",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/device/{{deviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "device", "{{deviceId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Alerts by Geofence",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/geofence/{{geofenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "geofence", "{{geofenceId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚠️ Validation Tests",
+      "item": [
+        {
+          "name": "Invalid latitude (out of range)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 999,\n  \"longitude\": -46.633\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{deviceId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "{{deviceId}}", "location"]
+            }
+          }
+        },
+        {
+          "name": "Missing API key (should return 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            }
+          }
+        },
+        {
+          "name": "Wrong API key (should return 401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "wrong-key" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            }
+          }
+        },
+        {
+          "name": "Unknown field (should return 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TRUCK-TEST\",\n  \"unknownField\": \"should be rejected\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            }
+          }
+        },
+        {
+          "name": "Invalid GeoJSON (missing closing coordinate)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad Geofence\",\n  \"area\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": \"not-an-array\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": ["{{baseUrl}}"],
+              "path": ["geofences"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

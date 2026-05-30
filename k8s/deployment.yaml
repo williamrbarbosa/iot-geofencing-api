@@ -1,0 +1,248 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Kubernetes Deployment Configuration
+# IoT Geofencing API
+# ─────────────────────────────────────────────────────────────────────────────
+
+---
+# ── Namespace ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iot-platform
+  labels:
+    app: iot-geofencing
+
+---
+# ── ConfigMap: non-secret environment config ──────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iot-api-config
+  namespace: iot-platform
+data:
+  NODE_ENV: "production"
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "iot_geofencing"
+  PORT: "3000"
+
+---
+# ── Secret: sensitive values (base64 encoded) ─────────────────────────────────
+# In production: use Vault, AWS Secrets Manager, or Sealed Secrets instead.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iot-api-secrets
+  namespace: iot-platform
+type: Opaque
+stringData:                    # stringData auto-encodes to base64
+  DB_USER: "iot_user"
+  DB_PASSWORD: "change-me-in-prod"
+  API_KEY: "change-me-in-prod"
+  JWT_SECRET: "change-me-in-prod"
+
+---
+# ── Deployment: API ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-api
+  namespace: iot-platform
+  labels:
+    app: iot-api
+spec:
+  replicas: 2                  # 2 replicas for high availability
+  selector:
+    matchLabels:
+      app: iot-api
+  strategy:
+    type: RollingUpdate        # Zero-downtime deploys
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: iot-api
+    spec:
+      # Security: don't run as root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: iot-api
+          image: iot-geofencing-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: iot-api-config
+            - secretRef:
+                name: iot-api-secrets
+          # Health checks tell K8s when a pod is ready to receive traffic
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          # Resource limits prevent one pod from starving others
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+---
+# ── Service: API ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-api-service
+  namespace: iot-platform
+spec:
+  selector:
+    app: iot-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
+
+---
+# ── HorizontalPodAutoscaler ───────────────────────────────────────────────────
+# Auto-scales from 2 to 10 replicas based on CPU usage.
+# IoT systems have bursty traffic (e.g. all vehicles reporting at once).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: iot-api-hpa
+  namespace: iot-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: iot-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ── Ingress: external access ──────────────────────────────────────────────────
+# Requires nginx-ingress-controller installed in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iot-api-ingress
+  namespace: iot-platform
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/rate-limit: "100"          # req/min per IP
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.iot-fleet.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: iot-api-service
+                port:
+                  number: 80
+
+---
+# ── StatefulSet: PostgreSQL + PostGIS ────────────────────────────────────────
+# StatefulSet (not Deployment) because DB needs stable storage identity.
+# In production: use a managed DB (RDS, Cloud SQL) instead.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: iot-platform
+spec:
+  serviceName: postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:15-3.3
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-api-config
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: iot-api-secrets
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: iot-api-secrets
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# ── Service: PostgreSQL ───────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: iot-platform
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP              # Internal only, never exposed externally
