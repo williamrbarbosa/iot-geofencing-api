@@ -1,14 +1,20 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Geofence } from "./geofence.entity";
 import { CreateGeofenceDto, UpdateGeofenceDto } from "./geofence.dto";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import { Cache } from "cache-manager";
+import { CacheKeys, CacheTTL } from "../../common/cache/cache-keys";
 
 @Injectable()
 export class GeofencesService {
   constructor(
     @InjectRepository(Geofence)
     private readonly geofenceRepo: Repository<Geofence>,
+
+    @Inject(CACHE_MANAGER)
+    private readonly cache: Cache,
   ) {}
 
   async create(dto: CreateGeofenceDto): Promise<Geofence> {
@@ -17,7 +23,47 @@ export class GeofencesService {
       description: dto.description,
       area: () => `ST_GeomFromGeoJSON('${JSON.stringify(dto.area)}')`,
     });
-    return this.geofenceRepo.save(geofence);
+    const saved = this.geofenceRepo.save(geofence);
+
+    // New geofence → invalidate the active geofences cache
+    await this.invalidateActiveGeofencesCache();
+
+    return saved;
+  }
+
+  async update(id: string, dto: UpdateGeofenceDto): Promise<Geofence> {
+    await this.findOne(id); // throws if not found
+
+    const updateData: any = {};
+    if (dto.name) updateData.name = dto.name;
+    if (dto.description !== undefined) updateData.description = dto.description;
+    if (dto.isActive !== undefined) updateData.isActive = dto.isActive;
+
+    if (dto.area) {
+      // Use raw query to update geometry column
+      await this.geofenceRepo.query(
+        `UPDATE geofences SET area = ST_GeomFromGeoJSON($1), "updatedAt" = NOW() WHERE id = $2`,
+        [JSON.stringify(dto.area), id],
+      );
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await this.geofenceRepo.update(id, updateData);
+    }
+
+    // Geofence changed (area, isActive, etc.) → invalidate cache
+    await this.invalidateActiveGeofencesCache();
+
+    return this.findOne(id);
+  }
+
+  async remove(id: string): Promise<void> {
+    const geofence = await this.geofenceRepo.findOne({ where: { id } });
+    if (!geofence) throw new NotFoundException(`Geofence ${id} not found`);
+    await this.geofenceRepo.remove(geofence);
+
+    // Geofence removed → invalidate cache
+    await this.invalidateActiveGeofencesCache();
   }
 
   async findAll(): Promise<any[]> {
@@ -66,35 +112,6 @@ export class GeofencesService {
     return result as Geofence;
   }
 
-  async update(id: string, dto: UpdateGeofenceDto): Promise<Geofence> {
-    await this.findOne(id); // throws if not found
-
-    const updateData: any = {};
-    if (dto.name) updateData.name = dto.name;
-    if (dto.description !== undefined) updateData.description = dto.description;
-    if (dto.isActive !== undefined) updateData.isActive = dto.isActive;
-
-    if (dto.area) {
-      // Use raw query to update geometry column
-      await this.geofenceRepo.query(
-        `UPDATE geofences SET area = ST_GeomFromGeoJSON($1), "updatedAt" = NOW() WHERE id = $2`,
-        [JSON.stringify(dto.area), id],
-      );
-    }
-
-    if (Object.keys(updateData).length > 0) {
-      await this.geofenceRepo.update(id, updateData);
-    }
-
-    return this.findOne(id);
-  }
-
-  async remove(id: string): Promise<void> {
-    const geofence = await this.geofenceRepo.findOne({ where: { id } });
-    if (!geofence) throw new NotFoundException(`Geofence ${id} not found`);
-    await this.geofenceRepo.remove(geofence);
-  }
-
   /**
    * Core geofencing check: find all active geofences that contain a point.
    *
@@ -109,16 +126,43 @@ export class GeofencesService {
     latitude: number,
     longitude: number,
   ): Promise<Geofence[]> {
+    const active = await this.findAllActive();
+    if (active.length === 0) return [];
+
     return this.geofenceRepo
       .createQueryBuilder("g")
-      .where("g.isActive = true")
+      .where("g.id IN (:...ids)", { ids: active.map((g) => g.id) })
       .andWhere(
-        // ST_Contains(polygon, point) → true if point is inside polygon
-        // ST_SetSRID(ST_MakePoint(lng, lat), 4326) → creates a PostGIS point
-        // Note: longitude comes first in PostGIS (X = lng, Y = lat)
         `ST_Contains(g.area, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326))`,
         { lng: longitude, lat: latitude },
       )
       .getMany();
+  }
+
+  /**
+   * Returns all active geofences, using Redis cache.
+   * Used for preloading — e.g. to warm up the cache on startup.
+   */
+  async findAllActive(): Promise<Geofence[]> {
+    const cached = await this.cache.get<Geofence[]>(CacheKeys.ACTIVE_GEOFENCES);
+    if (cached) return cached;
+
+    const geofences = await this.geofenceRepo.find({
+      where: { isActive: true },
+    });
+
+    await this.cache.set(
+      CacheKeys.ACTIVE_GEOFENCES,
+      geofences,
+      CacheTTL.ACTIVE_GEOFENCES,
+    );
+
+    return geofences;
+  }
+
+  // ── Private ───────────────────────────────────────────────────────────────
+
+  private async invalidateActiveGeofencesCache(): Promise<void> {
+    await this.cache.del(CacheKeys.ACTIVE_GEOFENCES);
   }
 }

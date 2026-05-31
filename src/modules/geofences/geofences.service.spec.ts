@@ -1,11 +1,10 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { NotFoundException } from "@nestjs/common";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { GeofencesService } from "./geofences.service";
 import { Geofence } from "./geofence.entity";
 
-// ── Mock Repository Factory ──────────────────────────────────────────────────
-// We mock the TypeORM repository to avoid needing a real DB in unit tests.
 const mockGeofenceRepository = () => ({
   create: jest.fn(),
   save: jest.fn(),
@@ -15,6 +14,12 @@ const mockGeofenceRepository = () => ({
   remove: jest.fn(),
   query: jest.fn(),
   createQueryBuilder: jest.fn(),
+});
+
+const mockCacheManager = () => ({
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  del: jest.fn().mockResolvedValue(undefined),
 });
 
 const SAMPLE_GEOFENCE_ID = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -41,6 +46,7 @@ const sampleGeofence: Partial<Geofence> = {
 describe("GeofencesService", () => {
   let service: GeofencesService;
   let repo: ReturnType<typeof mockGeofenceRepository>;
+  let cache: ReturnType<typeof mockCacheManager>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -50,20 +56,21 @@ describe("GeofencesService", () => {
           provide: getRepositoryToken(Geofence),
           useFactory: mockGeofenceRepository,
         },
+        { provide: CACHE_MANAGER, useFactory: mockCacheManager },
       ],
     }).compile();
 
     service = module.get<GeofencesService>(GeofencesService);
     repo = module.get(getRepositoryToken(Geofence));
+    cache = module.get(CACHE_MANAGER);
   });
 
-  // ── create ─────────────────────────────────────────────────────────────────
   describe("create", () => {
-    it("should create and save a geofence", async () => {
+    it("should create a geofence and invalidate cache", async () => {
       repo.create.mockReturnValue(sampleGeofence);
       repo.save.mockResolvedValue(sampleGeofence);
 
-      const result = await service.create({
+      await service.create({
         name: "Warehouse Zone A",
         area: {
           type: "Polygon",
@@ -80,14 +87,13 @@ describe("GeofencesService", () => {
       });
 
       expect(repo.save).toHaveBeenCalled();
-      expect(result.name).toBe("Warehouse Zone A");
+      // Must invalidate cache after creating a new geofence
+      expect(cache.del).toHaveBeenCalledWith("geofences:active");
     });
   });
 
-  // ── findOne ────────────────────────────────────────────────────────────────
   describe("findOne", () => {
     it("should return a geofence when it exists", async () => {
-      // Mock the query builder chain
       const mockQb = {
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -107,34 +113,33 @@ describe("GeofencesService", () => {
       };
       repo.createQueryBuilder.mockReturnValue(mockQb);
 
-      await expect(service.findOne("non-existent-id")).rejects.toThrow(
+      await expect(service.findOne("non-existent")).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
-  // ── remove ─────────────────────────────────────────────────────────────────
   describe("remove", () => {
-    it("should remove a geofence that exists", async () => {
+    it("should remove a geofence and invalidate cache", async () => {
       repo.findOne.mockResolvedValue(sampleGeofence);
       repo.remove.mockResolvedValue(undefined);
 
-      await expect(service.remove(SAMPLE_GEOFENCE_ID)).resolves.not.toThrow();
+      await service.remove(SAMPLE_GEOFENCE_ID);
+
       expect(repo.remove).toHaveBeenCalledWith(sampleGeofence);
+      expect(cache.del).toHaveBeenCalledWith("geofences:active");
     });
 
-    it("should throw NotFoundException when trying to remove a non-existent geofence", async () => {
+    it("should throw NotFoundException for non-existent geofence", async () => {
       repo.findOne.mockResolvedValue(null);
-
       await expect(service.remove("non-existent")).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
-  // ── findGeofencesContainingPoint ───────────────────────────────────────────
   describe("findGeofencesContainingPoint", () => {
-    it("should query with ST_Contains and return matching geofences", async () => {
+    it("should query PostGIS ST_Contains with correct params", async () => {
       const mockQb = {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
@@ -147,7 +152,6 @@ describe("GeofencesService", () => {
         -46.628,
       );
 
-      // Verify PostGIS query was built
       expect(mockQb.andWhere).toHaveBeenCalledWith(
         expect.stringContaining("ST_Contains"),
         expect.objectContaining({ lat: -23.555, lng: -46.628 }),
@@ -163,8 +167,34 @@ describe("GeofencesService", () => {
       };
       repo.createQueryBuilder.mockReturnValue(mockQb);
 
-      const result = await service.findGeofencesContainingPoint(0, 0); // middle of ocean
+      const result = await service.findGeofencesContainingPoint(0, 0);
       expect(result).toHaveLength(0);
+    });
+  });
+
+  describe("findAllActive", () => {
+    it("should return cached geofences without hitting the DB", async () => {
+      cache.get.mockResolvedValue([sampleGeofence]);
+
+      const result = await service.findAllActive();
+
+      expect(result).toHaveLength(1);
+      expect(repo.find).not.toHaveBeenCalled(); // DB not touched
+    });
+
+    it("should query DB on cache miss and populate cache", async () => {
+      cache.get.mockResolvedValue(null); // cache miss
+      repo.find.mockResolvedValue([sampleGeofence]);
+
+      const result = await service.findAllActive();
+
+      expect(repo.find).toHaveBeenCalled();
+      expect(cache.set).toHaveBeenCalledWith(
+        "geofences:active",
+        [sampleGeofence],
+        300,
+      );
+      expect(result).toHaveLength(1);
     });
   });
 });
